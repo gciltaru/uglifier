@@ -3,7 +3,7 @@
 require "json"
 require "base64"
 require "execjs"
-require "uglifier/version"
+require_relative "./uglifier/version"
 
 # A wrapper around the UglifyJS interface
 class Uglifier
@@ -22,6 +22,7 @@ class Uglifier
   SplitFallbackPath = File.expand_path("../split.js", __FILE__)
   # UglifyJS wrapper path
   UglifyJSWrapperPath = File.expand_path("../uglifier.js", __FILE__)
+  TerserPath = File.expand_path("../terser.js", __FILE__)
 
   # Default options for compilation
   DEFAULTS = {
@@ -99,7 +100,8 @@ class Uglifier
     :ie8 => true, # Generate safe code for IE8
     :source_map => false, # Generate source map
     :error_context_lines => 8, # How many lines surrounding the error line
-    :harmony => false # Enable ES6/Harmony mode (experimental). Disabling mangling and compressing is recommended with Harmony mode.
+    :harmony => false, # Enable ES6/Harmony mode (experimental). Disabling mangling and compressing is recommended with Harmony mode.
+    :terser => false
   }
 
   EXTRA_OPTIONS = [:comments, :mangle_properties]
@@ -157,7 +159,9 @@ class Uglifier
   # @param source [IO, String] valid JS source code.
   # @return [String] minified code.
   def compile(source)
-    if @options[:source_map]
+    if terser?
+      run_terser(source)
+    elsif @options[:source_map]
       compiled, source_map = run_uglifyjs(source, true)
       source_map_uri = Base64.strict_encode64(source_map)
       source_map_mime = "application/json;charset=utf-8;base64"
@@ -181,6 +185,13 @@ class Uglifier
   def context
     @context ||= begin
       source = harmony? ? source_with(HarmonySourcePath) : source_with(SourcePath)
+      ExecJS.compile(source)
+    end
+  end
+
+  def terser_context
+    @terser_context ||= begin
+      source = source_with(TerserPath)
       ExecJS.compile(source)
     end
   end
@@ -221,8 +232,21 @@ class Uglifier
     parse_result(context.call("uglifier", options), generate_map, options)
   end
 
+  def run_terser(input)
+    source = read_source(input)
+    options = {
+      :source => source
+    }
+    terser_call = terser_context.call('Terser.minify', options)
+    parse_result(terser_call, false, options)
+  end
+
   def harmony?
     @options[:harmony]
+  end
+
+  def terser?
+    @options[:terser]
   end
 
   def harmony_error_message(message)
@@ -282,7 +306,7 @@ class Uglifier
 
   def error_message(result, options)
     err = result['error']
-    harmony_msg = harmony? ? '' : harmony_error_message(err['message'].to_s)
+    harmony_msg = harmony? || terser? ? '' : harmony_error_message(err['message'].to_s)
     src_ctx = context_lines_message(options[:source], err['line'], err['col'])
     "#{err['message']}#{harmony_msg}\n#{src_ctx}"
   end

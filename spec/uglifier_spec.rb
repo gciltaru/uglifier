@@ -26,6 +26,15 @@ describe "Uglifier" do
     end
   end
 
+  describe 'terser mode' do
+    let(:source) { "require('test'); for (var value of array) { bar(value) }; " }
+
+    it "minifies JS with Terser terser option is on" do
+      minified = Uglifier.new(:terser => true).compile(source)
+      expect(minified.length).to be < source.length
+    end
+  end
+
   it "throws an exception when compilation fails" do
     expect { Uglifier.new.compile(")(") }.to raise_error(Uglifier::Error)
   end
